@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <utility>
 #include <vector>
 
 template <typename T>
@@ -28,6 +29,11 @@ public:
 
 	size_t order() const {
 		return order_;
+	}
+
+	void swap(mat2d<T>& other) noexcept {
+		std::swap(order_, other.order_);
+		std::swap(data_, other.data_);
 	}
 
 private:
