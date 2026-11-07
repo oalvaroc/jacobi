@@ -27,6 +27,14 @@ public:
 		return data_[row * order_ + col];
 	}
 
+	const T *data() const {
+		return data_.data();
+	}
+
+	T *data() {
+		return data_.data();
+	}
+
 	size_t order() const {
 		return order_;
 	}
