@@ -6,8 +6,8 @@
 #include <cstdlib>
 #include <utility>
 
-__global__ void jacobi_step(const float *src, float *dst, int *not_converged,
-                            size_t order, double threshold) {
+__global__ void jacobi_step(const float *__restrict__ src, float *__restrict__ dst,
+                            int *__restrict__ not_converged, size_t order, double threshold) {
 	const size_t row = blockIdx.y + 1;
 	const size_t col = blockIdx.x * blockDim.x + threadIdx.x + 1;
 	if (col >= order - 1) {
