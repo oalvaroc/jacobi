@@ -14,7 +14,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PROGRAMS = ("serial", "omp", "omp_simd")
+PROGRAMS = ("serial", "omp", "omp_simd", "cuda")
+OPENMP_PROGRAMS = ("omp", "omp_simd")
 OUTPUT_RE = re.compile(r"elapsed=(\S+)s iter=(\d+)/(\d+) converged=(true|false)")
 FIELDS = (
     "timestamp",
@@ -22,6 +23,7 @@ FIELDS = (
     "program",
     "order",
     "threads",
+    "block_size",
     "iterations_requested",
     "iterations",
     "converged",
@@ -52,11 +54,15 @@ def parse_args() -> argparse.Namespace:
         The parsed options.
     """
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--programs", nargs="+", choices=PROGRAMS, default=list(PROGRAMS))
+    parser.add_argument("--programs", nargs="+", choices=PROGRAMS,
+                        help="programs to run (default: every program found in the build directory)")
     parser.add_argument("--orders", nargs="+", type=int, default=[256, 1024, 4096, 8192],
                         help="matrix orders (default: %(default)s)")
     parser.add_argument("--threads", nargs="+", type=int, default=default_threads(),
                         help="thread counts for the OpenMP programs (default: %(default)s)")
+    parser.add_argument("--block-sizes", nargs="+", type=int,
+                        default=[32, 64, 128, 256, 512, 1024],
+                        help="threads per block for the CUDA program (default: %(default)s)")
     parser.add_argument("--repetitions", type=int, default=5,
                         help="runs per configuration (default: %(default)s)")
     parser.add_argument("--iter", type=int, default=100,
@@ -71,37 +77,56 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def make_runs(args: argparse.Namespace) -> list[tuple[str, int, int, int]]:
+def program_path(args: argparse.Namespace, program: str) -> Path:
+    """Locates a program in the build directory.
+
+    Args:
+        args: The parsed command line options.
+        program: The name of the program.
+
+    Returns:
+        The path of the program's executable.
+    """
+    return args.build_dir / "src" / program
+
+
+def make_runs(args: argparse.Namespace) -> list[tuple[str, int, int | None, int | None, int]]:
     """Lists every run of the benchmark in shuffled order.
 
-    The serial program only runs with one thread. Shuffling keeps slow drift, such as
-    the machine heating up, from always affecting the same configuration.
+    Only the OpenMP programs vary the thread count and only the CUDA program varies the
+    block size. Shuffling keeps slow drift, such as the machine heating up, from always
+    affecting the same configuration.
 
     Args:
         args: The parsed command line options.
 
     Returns:
-        A (program, order, threads, repetition) tuple for each run.
+        A (program, order, threads, block_size, repetition) tuple for each run, where
+        threads and block_size are None when the program does not use them.
     """
     runs = []
     for program, order, repetition in itertools.product(
         args.programs, args.orders, range(1, args.repetitions + 1)
     ):
-        for threads in [1] if program == "serial" else args.threads:
-            runs.append((program, order, threads, repetition))
+        threads = args.threads if program in OPENMP_PROGRAMS else [1 if program == "serial" else None]
+        block_sizes = args.block_sizes if program == "cuda" else [None]
+        for thread_count, block_size in itertools.product(threads, block_sizes):
+            runs.append((program, order, thread_count, block_size, repetition))
     random.Random(args.seed).shuffle(runs)
     return runs
 
 
 def run_once(
-    program: str, order: int, threads: int, args: argparse.Namespace
+    program: str, order: int, threads: int | None, block_size: int | None,
+    args: argparse.Namespace
 ) -> dict[str, int | float | str]:
     """Runs a program once.
 
     Args:
         program: The name of the program to run.
         order: The matrix order.
-        threads: The number of OpenMP threads.
+        threads: The number of OpenMP threads, or None if the program does not use OpenMP.
+        block_size: The threads per CUDA block, or None if the program does not use CUDA.
         args: The parsed command line options.
 
     Returns:
@@ -110,10 +135,12 @@ def run_once(
     Raises:
         RuntimeError: The program failed or its output could not be parsed.
     """
-    command =[str(args.build_dir / "src" / program), "-n", str(order), "-i", str(args.iter),
+    command = [str(program_path(args, program)), "-n", str(order), "-i", str(args.iter),
                "-e", str(args.epsilon), "-s", str(args.seed)]
+    if block_size is not None:
+        command += ["-b", str(block_size)]
     env = os.environ | {
-        "OMP_NUM_THREADS": str(threads),
+        "OMP_NUM_THREADS": str(threads or 1),
         "OMP_PROC_BIND": "close",
         "OMP_PLACES": "cores",
     }
@@ -139,8 +166,12 @@ def main() -> int:
     started = datetime.datetime.now().astimezone()
     output = args.output or ROOT / "results" / f"benchmark_{started:%Y%m%d_%H%M%S}.csv"
 
+    if args.programs is None:
+        args.programs = [p for p in PROGRAMS if program_path(args, p).is_file()]
+        if not args.programs:
+            sys.exit(f"no programs found in {args.build_dir}; build the project first")
     for program in args.programs:
-        path = args.build_dir / "src" / program
+        path = program_path(args, program)
         if not path.is_file():
             sys.exit(f"program not found: {path}; build the project first")
 
@@ -151,14 +182,15 @@ def main() -> int:
         print(f"{len(runs)} runs, writing to {output}", file=sys.stderr)
         writer = csv.DictWriter(file, FIELDS)
         writer.writeheader()
-        for index, (program, order, threads, repetition) in enumerate(runs, 1):
-            result = run_once(program, order, threads, args)
+        for index, (program, order, threads, block_size, repetition) in enumerate(runs, 1):
+            result = run_once(program, order, threads, block_size, args)
             writer.writerow({
                 "timestamp": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
                 "host": platform.node(),
                 "program": program,
                 "order": order,
                 "threads": threads,
+                "block_size": block_size,
                 "iterations_requested": args.iter,
                 "epsilon": args.epsilon,
                 "seed": args.seed,
@@ -166,7 +198,8 @@ def main() -> int:
                 **result,
             })
             file.flush()
-            print(f"[{index}/{len(runs)}] {program} n={order} threads={threads} "
+            config = f"block_size={block_size}" if block_size else f"threads={threads}"
+            print(f"[{index}/{len(runs)}] {program} n={order} {config} "
                   f"rep={repetition}: {result['elapsed_s']:.4f}s", file=sys.stderr)
     return 0
 
