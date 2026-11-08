@@ -74,6 +74,8 @@ def parse_args() -> argparse.Namespace:
                         help="CMake build directory with the programs (default: build)")
     parser.add_argument("--output", type=Path,
                         help="CSV file to create (default: results/benchmark_<timestamp>.csv)")
+    parser.add_argument("--matrix-dir", type=Path,
+                        help="save the final matrix of each configuration to this directory")
     return parser.parse_args()
 
 
@@ -139,6 +141,13 @@ def run_once(
                "-e", str(args.epsilon), "-s", str(args.seed)]
     if block_size is not None:
         command += ["-b", str(block_size)]
+    if args.matrix_dir:
+        name = f"{program}_n{order}"
+        if program in OPENMP_PROGRAMS:
+            name += f"_t{threads}"
+        if block_size is not None:
+            name += f"_b{block_size}"
+        command += ["-o", str(args.matrix_dir / f"{name}.bin")]
     env = os.environ | {
         "OMP_NUM_THREADS": str(threads or 1),
         "OMP_PROC_BIND": "close",
@@ -177,6 +186,8 @@ def main() -> int:
 
     runs = make_runs(args)
     output.parent.mkdir(parents=True, exist_ok=True)
+    if args.matrix_dir:
+        args.matrix_dir.mkdir(parents=True, exist_ok=True)
 
     with output.open("x", newline="") as file:
         print(f"{len(runs)} runs, writing to {output}", file=sys.stderr)
