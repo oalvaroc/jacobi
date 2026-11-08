@@ -15,6 +15,8 @@
 #define DEFAULT_ITER 10
 #define DEFAULT_SEED 42
 #define DEFAULT_EPSILON 1e-6
+#define DEFAULT_BLOCK_SIZE 256
+#define MAX_BLOCK_SIZE 1024
 
 struct cli_args {
 	size_t order;
@@ -30,7 +32,7 @@ bool parse_number(const char *str, T& out) {
 	return ec == std::errc{} && ptr == end;
 }
 
-inline void help(const std::string& prog, const char *description) {
+inline void help(const std::string& prog, const char *description, bool block_size) {
 	std::print("usage: {} OPTIONS\n\n", prog);
 	std::print("{}\n\n", description);
 	std::println("Options:");
@@ -38,21 +40,27 @@ inline void help(const std::string& prog, const char *description) {
 	std::println("    -i, --iter     Number of iterations (default={})", DEFAULT_ITER);
 	std::println("    -s, --seed     RNG seed (default={})", DEFAULT_SEED);
 	std::println("    -e, --epsilon  Tolerance (default={})", DEFAULT_EPSILON);
+	if (block_size) {
+		std::println("    -b, --block    Threads per CUDA block (default={}, max={})",
+		             DEFAULT_BLOCK_SIZE, MAX_BLOCK_SIZE);
+	}
 	std::println("    -h, --help     Show this message and exit");
 }
 
-inline int parse_args(int argc, char **argv, cli_args *args, const char *description) {
+inline int parse_args(int argc, char **argv, cli_args *args, const char *description,
+                      size_t *block_size = nullptr) {
 	static option opts[] = {
 		{"order",   required_argument, NULL, 'n'},
 		{"iter",    required_argument, NULL, 'i'},
 		{"seed",    required_argument, NULL, 's'},
 		{"epsilon", required_argument, NULL, 'e'},
+		{"block",   required_argument, NULL, 'b'},
 		{"help",    no_argument,       NULL, 'h'},
 		{NULL,      0,                 NULL,  0 }
 	};
 
 	if (argc == 1) {
-		help(argv[0], description);
+		help(argv[0], description, block_size != nullptr);
 		return EXIT_FAILURE;
 	}
 
@@ -62,12 +70,15 @@ inline int parse_args(int argc, char **argv, cli_args *args, const char *descrip
 	args->iter = DEFAULT_ITER;
 	args->seed = DEFAULT_SEED;
 	args->epsilon = DEFAULT_EPSILON;
+	if (block_size) {
+		*block_size = DEFAULT_BLOCK_SIZE;
+	}
 
 	int opt;
-	while ((opt = getopt_long(argc, argv, "hn:i:s:e:", opts, NULL)) > 0) {
+	while ((opt = getopt_long(argc, argv, block_size ? "hn:i:s:e:b:" : "hn:i:s:e:", opts, NULL)) > 0) {
 		switch (opt) {
 		case 'h':
-			help(argv[0], description);
+			help(argv[0], description, block_size != nullptr);
 			return EXIT_FAILURE;
 		case 'n':
 			if (!parse_number(optarg, args->order)) {
@@ -104,6 +115,22 @@ inline int parse_args(int argc, char **argv, cli_args *args, const char *descrip
 
 			if (!std::isfinite(args->epsilon) || args->epsilon < 0.0) {
 				std::println(stderr, "epsilon must be finite and not negative");
+				return EXIT_FAILURE;
+			}
+			break;
+		case 'b':
+			if (!block_size) {
+				std::println(stderr, "{}: unrecognized option '--block'", argv[0]);
+				return EXIT_FAILURE;
+			}
+
+			if (!parse_number(optarg, *block_size)) {
+				std::println(stderr, "invalid block size: '{}'", optarg);
+				return EXIT_FAILURE;
+			}
+
+			if (*block_size < 1 || *block_size > MAX_BLOCK_SIZE) {
+				std::println(stderr, "block size must be between 1 and {}", MAX_BLOCK_SIZE);
 				return EXIT_FAILURE;
 			}
 			break;

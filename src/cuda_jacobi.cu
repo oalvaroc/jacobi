@@ -6,8 +6,6 @@
 #include <cstdlib>
 #include <utility>
 
-static constexpr unsigned BLOCK_SIZE = 256;
-
 __global__ void jacobi_step(const float *src, float *dst, int *not_converged,
                             size_t order, double threshold) {
 	const size_t row = blockIdx.y + 1;
@@ -39,12 +37,13 @@ static void *device_alloc(size_t bytes) {
 	return ptr;
 }
 
-jacobi_result cuda_jacobi(float *grid, size_t order, size_t n_iter, double epsilon) {
+jacobi_result cuda_jacobi(float *grid, size_t order, size_t n_iter, double epsilon,
+                          unsigned block_size) {
 	const size_t bytes = order * order * sizeof(float);
 	const size_t interior = order - 2;
 	const double threshold = epsilon > 0.0 ? epsilon : HUGE_VAL;
-	const dim3 blocks((interior + BLOCK_SIZE - 1) / BLOCK_SIZE, interior);
-	const dim3 threads(BLOCK_SIZE);
+	const dim3 blocks((interior + block_size - 1) / block_size, interior);
+	const dim3 threads(block_size);
 
 	float *src = static_cast<float *>(device_alloc(bytes));
 	float *dst = static_cast<float *>(device_alloc(bytes));

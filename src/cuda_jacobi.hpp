@@ -7,4 +7,5 @@ struct jacobi_result {
 	bool converged;
 };
 
-jacobi_result cuda_jacobi(float *grid, size_t order, size_t n_iter, double epsilon);
+jacobi_result cuda_jacobi(float *grid, size_t order, size_t n_iter, double epsilon,
+                          unsigned block_size);
