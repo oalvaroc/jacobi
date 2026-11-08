@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <fstream>
 #include <utility>
 #include <vector>
 
@@ -37,6 +38,12 @@ public:
 
 	size_t order() const {
 		return order_;
+	}
+
+	bool save(const char *path) const {
+		std::ofstream file(path, std::ios::binary);
+		file.write(reinterpret_cast<const char *>(data_.data()), data_.size() * sizeof(T));
+		return file.good();
 	}
 
 	void swap(mat2d<T>& other) noexcept {

@@ -67,5 +67,10 @@ int main(int argc, char **argv) {
 	std::println("elapsed={} iter={}/{} converged={} threads={}",
 	             delta, result.iter, args.iter, result.converged, omp_get_max_threads());
 
+	if (args.output && !mat.save(args.output)) {
+		std::println(stderr, "failed to write the matrix to '{}'", args.output);
+		return EXIT_FAILURE;
+	}
+
 	return 0;
 }

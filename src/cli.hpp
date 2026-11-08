@@ -23,6 +23,7 @@ struct cli_args {
 	size_t iter;
 	size_t seed;
 	double epsilon;
+	const char *output;
 };
 
 template <typename T>
@@ -40,6 +41,7 @@ inline void help(const std::string& prog, const char *description, bool block_si
 	std::println("    -i, --iter     Number of iterations (default={})", DEFAULT_ITER);
 	std::println("    -s, --seed     RNG seed (default={})", DEFAULT_SEED);
 	std::println("    -e, --epsilon  Tolerance (default={})", DEFAULT_EPSILON);
+	std::println("    -o, --output   Write the final matrix to a file as raw float32, row by row");
 	if (block_size) {
 		std::println("    -b, --block    Threads per CUDA block (default={}, max={})",
 		             DEFAULT_BLOCK_SIZE, MAX_BLOCK_SIZE);
@@ -54,6 +56,7 @@ inline int parse_args(int argc, char **argv, cli_args *args, const char *descrip
 		{"iter",    required_argument, NULL, 'i'},
 		{"seed",    required_argument, NULL, 's'},
 		{"epsilon", required_argument, NULL, 'e'},
+		{"output",  required_argument, NULL, 'o'},
 		{"block",   required_argument, NULL, 'b'},
 		{"help",    no_argument,       NULL, 'h'},
 		{NULL,      0,                 NULL,  0 }
@@ -70,12 +73,13 @@ inline int parse_args(int argc, char **argv, cli_args *args, const char *descrip
 	args->iter = DEFAULT_ITER;
 	args->seed = DEFAULT_SEED;
 	args->epsilon = DEFAULT_EPSILON;
+	args->output = nullptr;
 	if (block_size) {
 		*block_size = DEFAULT_BLOCK_SIZE;
 	}
 
 	int opt;
-	while ((opt = getopt_long(argc, argv, block_size ? "hn:i:s:e:b:" : "hn:i:s:e:", opts, NULL)) > 0) {
+	while ((opt = getopt_long(argc, argv, block_size ? "hn:i:s:e:o:b:" : "hn:i:s:e:o:", opts, NULL)) > 0) {
 		switch (opt) {
 		case 'h':
 			help(argv[0], description, block_size != nullptr);
@@ -133,6 +137,9 @@ inline int parse_args(int argc, char **argv, cli_args *args, const char *descrip
 				std::println(stderr, "block size must be between 1 and {}", MAX_BLOCK_SIZE);
 				return EXIT_FAILURE;
 			}
+			break;
+		case 'o':
+			args->output = optarg;
 			break;
 		case 's':
 			if (!parse_number(optarg, args->seed)) {

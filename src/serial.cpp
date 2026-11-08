@@ -63,5 +63,10 @@ int main(int argc, char **argv) {
 	std::println("elapsed={} iter={}/{} converged={}",
 	             delta, result.iter, args.iter, result.converged);
 
+	if (args.output && !mat.save(args.output)) {
+		std::println(stderr, "failed to write the matrix to '{}'", args.output);
+		return EXIT_FAILURE;
+	}
+
 	return 0;
 }
